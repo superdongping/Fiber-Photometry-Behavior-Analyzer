@@ -1,0 +1,23 @@
+# Experimental data, saved projects, annotations and generated results
+*.avi
+*.mp4
+*.mov
+*.csv
+*.ipd
+*.inper
+*.db
+*.sqlite*
+*.mat
+*.fig
+project.json
+animals.csv
+sessions.csv
+events/
+results/
+tests/artifacts/
+tests/latest_*_path.txt
+*.asv
+*.m~
+tmp/
+.DS_Store
+Thumbs.db

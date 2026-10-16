@@ -1,0 +1,8 @@
+* text=auto
+*.m text eol=lf
+*.md text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.pdf binary
+# Preserve the upstream archive byte for byte.
+archive/SongLabDLC_Fiber_photometry_V4_3/** -text
