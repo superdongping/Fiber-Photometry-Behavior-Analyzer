@@ -5,5 +5,5 @@ if isfile(file)
 else
     T=table(strings(0,1),zeros(0,1),'VariableNames',{'Behavior','Time_signal_s'});
 end
-T=T(:,{'Behavior','Time_signal_s'});
+T=fp.order_events(T);
 end

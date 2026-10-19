@@ -16,6 +16,8 @@ switch key
     case 'uparrow', action='speed'; value=1;
     case 'downarrow', action='speed'; value=-1;
     case 't', action='tag';
+    case 'd', action='delete';
+    case 's', action='save';
     otherwise
         token=char(key);
         if startsWith(key,'numpad'), token=extractAfter(key,'numpad'); end

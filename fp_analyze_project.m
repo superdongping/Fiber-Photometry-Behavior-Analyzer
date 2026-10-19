@@ -1,8 +1,10 @@
 function result=fp_analyze_project(projectFile,varargin)
 % Event alignment + LP + event-baseline normalization adapted from V1_3.
 % Biological replicate = animal; trials/sessions are not independent animals.
-ip=inputParser; addParameter(ip,'Visible','on'); addParameter(ip,'MakeFigures',true); parse(ip,varargin{:});
-p=fp.load_project(projectFile); s=p.Settings;
+ip=inputParser; addParameter(ip,'Visible','on'); addParameter(ip,'MakeFigures',true);
+addParameter(ip,'PlotUnit','animal'); parse(ip,varargin{:});
+assert(ismember(string(ip.Results.PlotUnit),["animal","trial"]),'Invalid plotting unit.');
+p=fp.load_project(projectFile); p.Settings=fp.plot_settings(p.Settings); s=p.Settings;
 assert(any([p.Sessions.Include]),'No included sessions.');
 if s.LowpassHz>0
     assert(exist('butter','file')==2 && exist('filtfilt','file')==2,'Signal Processing Toolbox required for low-pass filtering.');
@@ -87,10 +89,13 @@ if ~isempty(inputFiles), writetable(struct2table(inputFiles),fullfile(out,'input
 animals=animalMeans(trials,grid,base,aucMask,s.SortOrder);
 groups=groupMeans(animals,grid);
 result=struct('OutputFolder',out,'Time',grid,'Trials',trials,'Animals',animals,'Groups',groups,'QC',qc,'Settings',s);
+result.PlotUnit=char(ip.Results.PlotUnit);
+[result.PlotRows,result.PlotGroups]=fp.analysis_plot_data(result,p,result.PlotUnit);
 save(fullfile(out,'analysis_results.mat'),'result','-v7.3');
 exportTables(out,animals,groups,grid);
+result.Figures=gobjects(0);
 if ip.Results.MakeFigures && ~isempty(animals)
-    drawFigures(out,p,animals,groups,grid,ip.Results.Visible);
+    result.Figures=fp.plot_analysis(result,p,ip.Results.Visible);
 end
 fprintf('FP analysis: %d accepted ROI-trials, %d animal/condition/ROI/behavior means.\n%s\n',numel(trials),numel(animals),out);
 if isempty(trials), warning('FP:NoTrials','No accepted trials. Review trial_QC.csv, event tags and sync confirmation; no group figures generated.'); end
@@ -150,71 +155,4 @@ for i=1:numel(groups)
 end
 writetable(animalRows,fullfile(out,'animal_mean_traces.csv'));
 writetable(groupRows,fullfile(out,'group_mean_SEM.csv'));
-end
-
-function drawFigures(out,p,animals,groups,grid,visible)
-combos=unique(string({groups.SessionLabel})+"|"+string({groups.ROI})+"|"+string({groups.Behavior}),'stable');
-allKeys=string({groups.SessionLabel})+"|"+string({groups.ROI})+"|"+string({groups.Behavior});
-colors=[0.92 0.39 0.08;0.12 0.40 0.70;0.21 0.58 0.35;0.58 0.28 0.65;0.50 0.35 0.20];
-for c=1:numel(combos)
-    selected=groups(allKeys==combos(c)); row=selected(1);
-    fig=figure('Name',sprintf('%s | %s | %s',row.SessionLabel,row.ROI,row.Behavior),'Visible',visible,'Color','w', ...
-        'Position',[80 80 1250 720]);
-    tiles=tiledlayout(fig,2,numel(p.Groups),'TileSpacing','compact','Padding','compact');
-    ax=nexttile(tiles,[1 numel(p.Groups)]); hold(ax,'on');
-    for g=1:numel(p.Groups)
-        subset=selected(strcmp({selected.Group},p.Groups{g})); if isempty(subset), continue; end
-        group=subset(1); color=colors(mod(g-1,size(colors,1))+1,:);
-        a=animals(strcmp({animals.Group},group.Group) & strcmp({animals.SessionLabel},row.SessionLabel) & ...
-            strcmp({animals.ROI},row.ROI) & strcmp({animals.Behavior},row.Behavior));
-        plot(ax,grid,vertcat(a.Mean)','Color',[0.82 0.82 0.82],'HandleVisibility','off','LineWidth',0.6);
-        ok=isfinite(group.Mean) & isfinite(group.SEM);
-        if any(ok)
-            x=grid(ok); mu=group.Mean(ok); se=group.SEM(ok);
-            fill(ax,[x fliplr(x)],[mu+se fliplr(mu-se)],color,'FaceAlpha',0.18,'EdgeColor','none','HandleVisibility','off');
-        end
-        plot(ax,grid,group.Mean,'Color',color,'LineWidth',2,'DisplayName',sprintf('%s (n=%d animals; %d trials)',group.Group,group.AnimalCount,group.TrialCount));
-    end
-    xline(ax,0,'k--','HandleVisibility','off'); xlabel(ax,'Time from behavior onset (s)'); ylabel(ax,units(p.Settings));
-    title(ax,sprintf('%s | %s | %s | %s',row.SessionLabel,row.ROI,row.Behavior,p.Settings.SignalMode),'Interpreter','none');
-    legend(ax,'show','Location','southoutside','Interpreter','none'); style(ax);
-    pooled=vertcat(animals(strcmp({animals.SessionLabel},row.SessionLabel) & strcmp({animals.ROI},row.ROI) & strcmp({animals.Behavior},row.Behavior)).Mean);
-    limits=p.Settings.HeatmapCLim;
-    if isempty(limits), limits=prctile(pooled(:),p.Settings.HeatmapPercentiles); end
-    if limits(1)==limits(2), limits=limits+[-1 1]*max(abs(limits(1))*0.01,1e-5); end
-    map=table();
-    for g=1:numel(p.Groups)
-        ax=nexttile(tiles); a=animals(strcmp({animals.Group},p.Groups{g}) & strcmp({animals.SessionLabel},row.SessionLabel) & ...
-            strcmp({animals.ROI},row.ROI) & strcmp({animals.Behavior},row.Behavior));
-        if isempty(a), text(ax,0.5,0.5,'No accepted animals','HorizontalAlignment','center'); axis(ax,'off'); continue; end
-        [~,order]=sort([a.AUC],p.Settings.SortOrder); a=a(order);
-        imagesc(ax,grid,1:numel(a),vertcat(a.Mean)); ax.YDir='reverse';
-        clim(ax,limits); colormap(ax,parula); cb=colorbar(ax); ylabel(cb,units(p.Settings));
-        yticks(ax,1:numel(a)); yticklabels(ax,{a.AnimalID});
-        xline(ax,0,'w--'); xlabel(ax,'Time from onset (s)'); ylabel(ax,'Animal (mean of trials)');
-        title(ax,p.Groups{g},'Interpreter','none'); style(ax);
-        for n=1:numel(a)
-            map=[map;table(string(p.Groups{g}),n,string(a(n).AnimalID),a(n).AUC,a(n).TrialCount, ...
-                'VariableNames',{'Group','HeatmapRowTopToBottom','AnimalID','SignedBaselineSubtractedAUC','TrialCount'})]; %#ok<AGROW>
-        end
-    end
-    stem=sprintf('%03d_%s_%s_%s_%s',c,safe(row.SessionLabel),safe(row.ROI),safe(row.Behavior),p.Settings.SignalMode);
-    exportgraphics(fig,fullfile(out,[stem '.png']),'Resolution',200);
-    savefig(fig,fullfile(out,[stem '.fig'])); writetable(map,fullfile(out,[stem '_heatmap_rows.csv']));
-    if strcmp(visible,'off'), close(fig); end
-end
-end
-
-function style(ax)
-set(ax,'FontName','Arial','TickDir','out','Box','off','XGrid','off','YGrid','off');
-end
-function text=units(s)
-switch s.Normalization
-    case 'dff_percent', text='Event-baseline \DeltaF/F (%)';
-    case 'baseline_subtract', text='Baseline-subtracted signal (a.u.)';
-    otherwise, text='Signal (a.u.)';
-end
-end
-function text=safe(text)
-text=char(matlab.lang.makeValidName(string(text))); if numel(text)>70, text=text(1:70); end
 end

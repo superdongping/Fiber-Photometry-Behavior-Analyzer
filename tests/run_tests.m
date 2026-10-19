@@ -43,7 +43,7 @@ assert(abs(g.Mean(idx)-200)<1e-10,'Animal weighting regressed to pooled trials.'
 assert(abs(g.SEM(idx)-100)<1e-10,'Animal SEM incorrect.');
 g2=result.Groups(strcmp({result.Groups.Group},'G2') & strcmp({result.Groups.ROI},'Region_A'));
 assert(all(isnan(g2.SEM)),'n=1 must not imply SEM=0.');
-assert(numel(dir(fullfile(result.OutputFolder,'*.png')))==2);
+assert(numel(dir(fullfile(result.OutputFolder,'*.png')))==4); % trace + heatmap for each ROI
 % TimeSpan parsing + ROI name mapping + absent ROI rejection.
 d=fp.read_recording(p.Sessions(1).CSV,p.ROIs); assert(numel(d.ROIs)==2 && abs(d.Duration-30)<1e-9);
 assert(strcmp(d.ROIs(2).Name,'Region_B'));
@@ -76,7 +76,10 @@ for mode={'ratio','470','410','both'}
 end
 app.Seek(5); state=app.GetState(); assert(state.Time==5 && state.VideoTime==5);
 app.AddEvent('Other',5); assert(app.SaveEvents());
-app.ConfirmSync(true); app.Play(); pause(0.2); app.Pause(); assert(app.GetState().Time>5);
+app.ConfirmSync(true); app.Play();
+deadline=tic;
+while app.GetState().Time<=5 && toc(deadline)<4, pause(0.1); end
+app.Pause(); assert(app.GetState().Time>5,'Playback did not advance within the bounded frame wait.');
 assert(height(fp.load_events(p,state.Session.ID))>=2);
 tm=app.Timer; app.Close(); assert(~isvalid(tm) && ~isvalid(app.Figure),'Timer/figure leaked on close.');
 manager=fiber_photometry_project(fullfile(p.Root,'project.mat')); delete(manager);

@@ -34,4 +34,14 @@ assert(ismember(string(s.SignalMode),["ratio","470","410"]),'Invalid analysis mo
 assert(ismember(string(s.Normalization),["dff_percent","baseline_subtract","none"]),'Invalid normalization.');
 assert(ismember(string(s.WavelengthAlignment),["index","interpolate470"]),'Invalid wavelength alignment.');
 assert(ismember(string(s.SortOrder),["ascend","descend"]),'Invalid AUC sorting order.');
+assert(isscalar(s.FilterOrder) && isfinite(s.FilterOrder) && s.FilterOrder>=1 && s.FilterOrder==fix(s.FilterOrder),'Filter order must be a positive integer.');
+assert(isscalar(s.MaxGapFactor) && isfinite(s.MaxGapFactor) && s.MaxGapFactor>1,'Gap factor must exceed 1.');
+assert(numel(s.HeatmapPercentiles)==2 && all(isfinite(s.HeatmapPercentiles)) && ...
+    s.HeatmapPercentiles(1)>=0 && s.HeatmapPercentiles(2)<=100 && diff(s.HeatmapPercentiles)>0,'Invalid heatmap percentiles.');
+assert(isempty(s.HeatmapCLim) || (numel(s.HeatmapCLim)==2 && all(isfinite(s.HeatmapCLim)) && diff(s.HeatmapCLim)>0),'Invalid fixed heatmap limits.');
+s=fp.plot_settings(s);
+assert(ismember(string(s.HeatmapRowLabels),["detailed","endpoints"]),'Invalid heatmap row label mode.');
+assert(isempty(s.CurveYLim) || (isnumeric(s.CurveYLim) && isreal(s.CurveYLim) && numel(s.CurveYLim)==2 && all(isfinite(s.CurveYLim)) && diff(s.CurveYLim)>0), ...
+    'Curve Y minimum must be less than the maximum; both must be finite.');
+assert(isscalar(s.ShowIndividualTraces) && ismember(s.ShowIndividualTraces,[0 1]),'Invalid gray trace visibility.');
 end

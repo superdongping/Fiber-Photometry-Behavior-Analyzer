@@ -1,0 +1,36 @@
+function [rows,groups]=analysis_plot_data(result,p,unit)
+% Animal is the default biological unit. Trial summaries are descriptive only.
+rows=struct('RowID',{},'AnimalID',{},'Group',{},'SessionLabel',{},'SessionID',{}, ...
+    'ROI',{},'Behavior',{},'EventIndex',{},'Onset_s',{},'TrialCount',{},'Mean',{},'AUC',{});
+grid=result.Time; base=grid>=p.Settings.Baseline(1) & grid<p.Settings.Baseline(2);
+mask=grid>=p.Settings.AUCWindow(1) & grid<=p.Settings.AUCWindow(2);
+if strcmp(unit,'animal')
+    for k=1:numel(result.Animals)
+        a=result.Animals(k);
+        rows(end+1)=struct('RowID',a.AnimalID,'AnimalID',a.AnimalID,'Group',a.Group, ...
+            'SessionLabel',a.SessionLabel,'SessionID','','ROI',a.ROI,'Behavior',a.Behavior, ...
+            'EventIndex',NaN,'Onset_s',NaN,'TrialCount',a.TrialCount,'Mean',a.Mean,'AUC',a.AUC); %#ok<AGROW>
+    end
+else
+    for k=1:numel(result.Trials)
+        a=result.Trials(k);
+        rows(end+1)=struct('RowID',sprintf('%s/%s/E%d',a.AnimalID,a.SessionID,a.EventIndex), ...
+            'AnimalID',a.AnimalID,'Group',a.Group,'SessionLabel',a.SessionLabel, ...
+            'SessionID',a.SessionID,'ROI',a.ROI,'Behavior',a.Behavior,'EventIndex',a.EventIndex, ...
+            'Onset_s',a.Onset_s,'TrialCount',1,'Mean',a.Values, ...
+            'AUC',trapz(grid(mask),a.Values(mask)-mean(a.Values(base)))); %#ok<AGROW>
+    end
+end
+groups=struct('Group',{},'SessionLabel',{},'ROI',{},'Behavior',{},'Unit',{}, ...
+    'N_units',{},'N_animals',{},'N_trials',{},'Mean',{},'SEM',{});
+if isempty(rows), return; end
+keys=string({rows.Group})+"|"+string({rows.SessionLabel})+"|"+string({rows.ROI})+"|"+string({rows.Behavior});
+for key=unique(keys,'stable')
+    a=rows(keys==key); m=vertcat(a.Mean); n=size(m,1);
+    if n>1, sem=std(m,0,1)/sqrt(n); else, sem=nan(size(grid)); end
+    groups(end+1)=struct('Group',a(1).Group,'SessionLabel',a(1).SessionLabel,'ROI',a(1).ROI, ...
+        'Behavior',a(1).Behavior,'Unit',unit,'N_units',n, ...
+        'N_animals',numel(unique(string({a.AnimalID}))),'N_trials',sum([a.TrialCount]), ...
+        'Mean',mean(m,1),'SEM',sem); %#ok<AGROW>
+end
+end

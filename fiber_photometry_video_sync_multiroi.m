@@ -1,4 +1,4 @@
-﻿function app=fiber_photometry_video_sync_multiroi(projectFile,varargin)
+function app=fiber_photometry_video_sync_multiroi(projectFile,varargin)
 % Project-aware successor to v4_6: shared video clock, arbitrary named ROIs.
 ip=inputParser; addParameter(ip,'Visible','on'); addParameter(ip,'SessionIndex',1); parse(ip,varargin{:});
 p=fp.load_project(projectFile); indices=find([p.Sessions.Include]);
@@ -7,16 +7,17 @@ sessionIndex=indices(min(ip.Results.SessionIndex,numel(indices)));
 data=[]; video=[]; events=table(); dirty=false; current=0; playOrigin=0; playClock=[]; imageHandle=[];
 speedPresets=[0.25 0.5 1 1.25 1.5 2 2.5 3]; playbackRate=1;
 keyboardEnabled=true; keyboardFocusExemption=[]; spaceHeld=false; tagHeld=false;
+deleteHeld=false; saveHeld=false; eventColumnKeys=false;
 traces=cell(1,numel(p.ROIs)); closing=false;
 playheads=gobjects(1,numel(p.ROIs)); signalHandles=cell(1,numel(p.ROIs));
 lastFrameTime=NaN; lastFrameIndex=-1; lastPlotUpdate=-Inf; lastTextUpdate=-Inf;
 stats=struct('FramesRead',0,'RandomSeeks',0,'DisplayedFrames',0,'PlotUpdates',0);
-fig=uifigure('Name',['FP + Video | ' p.Name],'Position',[40 40 1600 930],'Visible',ip.Results.Visible);
+fig=uifigure('Name','FP + Video | Blind review','Position',[40 40 1600 930],'Visible',ip.Results.Visible);
 root=uigridlayout(fig,[3 1]); root.RowHeight={90,'1x',125}; root.Padding=[8 8 8 8];
 top=uigridlayout(root,[2 9]); top.Layout.Row=1;
 top.RowHeight={32,32}; top.ColumnWidth={220,145,100,155,105,105,90,100,'1x'};
-items=arrayfun(@(r) sprintf('%s | %s | %s',r.ID,r.AnimalID,r.Label),p.Sessions(indices),'UniformOutput',false);
-sessionDD=uidropdown(top,'Items',items,'ItemsData',num2cell(indices),'Value',sessionIndex,'ValueChangedFcn',@changeSession);
+items=fp.review_session_labels(p,indices,true);
+sessionDD=uidropdown(top,'Items',items,'ItemsData',num2cell(indices),'Value',sessionIndex,'ValueChangedFcn',@changeSession,'Tag','SessionSelector');
 sessionDD.Layout.Column=[1 3]; sessionDD.Layout.Row=1;
 mode=uidropdown(top,'Items',{'470 / 410 ratio','470 only','410 only','470 + 410 traces'}, ...
     'ItemsData',{'ratio','470','410','both'},'Value','ratio','Tag','SignalMode','ValueChangedFcn',@(~,~)replot());
@@ -25,7 +26,12 @@ lp=uicheckbox(top,'Text','Low-pass','Value',true,'ValueChangedFcn',@(~,~)replot(
 baseline=uicheckbox(top,'Text','Cubic detrend','Value',false,'ValueChangedFcn',@(~,~)replot()); baseline.Layout.Column=6;
 normalize=uicheckbox(top,'Text','View dF/F%','Value',false,'ValueChangedFcn',@(~,~)replot()); normalize.Layout.Column=7;
 subtractLP=uicheckbox(top,'Text','Raw - LP','Value',false,'ValueChangedFcn',@(~,~)replot()); subtractLP.Layout.Column=8;
-peaks=uicheckbox(top,'Text','Peaks (mean + 3 SD)','Value',false,'ValueChangedFcn',@(~,~)replot()); peaks.Layout.Column=9;
+options=uigridlayout(top,[1 2]); options.Layout.Column=9; options.Layout.Row=1;
+options.ColumnWidth={165,'1x'}; options.Padding=[0 0 0 0]; options.ColumnSpacing=4;
+peaks=uicheckbox(options,'Text','Peaks (mean + 3 SD)','Value',false,'ValueChangedFcn',@(~,~)replot());
+blindReview=uicheckbox(options,'Text','Blind review (hide group)','Value',true,'Tag','BlindReview', ...
+    'Tooltip','Hide group names in this viewer only. Animal IDs remain visible; project and analysis windows are not blinded.', ...
+    'ValueChangedFcn',@(~,~)updateReviewLabels());
 offsetLabel=uilabel(top,'Text','Video offset (s): signal time at video t=0'); offsetLabel.Layout.Row=2; offsetLabel.Layout.Column=1;
 offset=uieditfield(top,'numeric','ValueChangedFcn',@(~,~)changeOffset()); offset.Layout.Row=2; offset.Layout.Column=2;
 confirmed=uicheckbox(top,'Text','Sync checked','ValueChangedFcn',@(~,~)saveSync()); confirmed.Layout.Row=2; confirmed.Layout.Column=3;
@@ -36,6 +42,7 @@ snapshot=uibutton(top,'Text','Snapshot','ButtonPushedFcn',@(~,~)saveSnapshot());
 visibleROIs=uilistbox(top,'Items',{p.ROIs.Name},'Multiselect','on','Value',{p.ROIs.Name},'ValueChangedFcn',@(~,~)showROIs());
 visibleROIs.Layout.Row=2; visibleROIs.Layout.Column=[8 9];
 body=uigridlayout(root,[1 3]); body.Layout.Row=2; body.ColumnWidth={'1x','1x',190};
+body.Padding=[2 2 2 2]; body.ColumnSpacing=6;
 videoPanel=uipanel(body,'Title','Video'); videoGrid=uigridlayout(videoPanel,[1 1]); axVideo=uiaxes(videoGrid); axis(axVideo,'off');
 signalPanel=uipanel(body,'Title','Simultaneous ROI signals'); signalGrid=uigridlayout(signalPanel,[numel(p.ROIs) 1]);
 axesList=gobjects(1,numel(p.ROIs));
@@ -45,18 +52,19 @@ for k=1:numel(p.ROIs)
 end
 linkaxes(axesList,'x');
 eventPanel=uipanel(body,'Title','Behavior onsets','Tag','EventPanel'); eventPanel.Layout.Column=3;
-eventGrid=uigridlayout(eventPanel,[2 1]); eventGrid.RowHeight={20,'1x'};
-eventGrid.Padding=[3 3 3 3]; eventGrid.RowSpacing=3;
-uilabel(eventGrid,'Text','Click a row to review','FontSize',11);
-eventTable=uitable(eventGrid,'ColumnEditable',[true true],'CellEditCallback',@editTag, ...
+eventGrid=uigridlayout(eventPanel,[2 1]); eventGrid.RowHeight={16,'1x'};
+eventGrid.Padding=[2 2 2 2]; eventGrid.RowSpacing=1;
+uilabel(eventGrid,'Text','Click a row to review','FontSize',10);
+eventTable=uitable(eventGrid,'ColumnEditable',[false true true],'CellEditCallback',@editTag, ...
     'CellSelectionCallback',@selectTag,'Tag','EventsTable','RowName',[], ...
-    'ColumnWidth',{'1x',70},'ColumnSortable',[false false], ...
-    'Tooltip','Click either cell to jump video and ROI traces. Time is original signal seconds; double-click to edit.');
+    'ColumnWidth',{50,'1x',56},'ColumnSortable',[false false false],'FontSize',11, ...
+    'Tooltip','E2 is chronological session event 2. Select Event cells for D (delete) or S (save). Time displays one decimal; jumping and saving retain full precision. Double-click behavior/time to edit.');
 eventTable.Layout.Row=2;
+addStyle(eventTable,uistyle('HorizontalAlignment','right'),'column',3);
 bottom=uigridlayout(root,[3 1]); bottom.Layout.Row=3; bottom.RowHeight={48,34,24};
 bottom.Padding=[0 0 0 0]; bottom.RowSpacing=8;
 slider=uislider(bottom,'Limits',[0 1],'ValueChangingFcn',@(~,e)manualSeek(e.Value),'ValueChangedFcn',@(s,~)finishScrub(s.Value));
-bar=uigridlayout(bottom,[1 12]); bar.Layout.Row=2; bar.ColumnWidth={65,65,65,65,145,95,100,95,40,85,85,'1x'};
+bar=uigridlayout(bottom,[1 12]); bar.Layout.Row=2; bar.ColumnWidth={65,65,65,65,145,95,135,120,40,85,85,'1x'};
 bar.Padding=[0 0 0 0]; bar.RowHeight={30};
 uibutton(bar,'Text','Play','ButtonPushedFcn',@(~,~)play());
 uibutton(bar,'Text','Pause','ButtonPushedFcn',@(~,~)pauseFromControl());
@@ -70,8 +78,8 @@ end
 behavior=uidropdown(bar,'Items',behaviorItems,'ItemsData',p.Behaviors,'Tag','BehaviorSelector', ...
     'Tooltip','Keys 1-9 select a predefined behavior; T tags onset.', 'ValueChangedFcn',@(~,~)activateReviewKeys());
 uibutton(bar,'Text','Tag onset (T)','ButtonPushedFcn',@(~,~)addTag());
-uibutton(bar,'Text','Delete selected','ButtonPushedFcn',@(~,~)deleteTag());
-uibutton(bar,'Text','Save events','ButtonPushedFcn',@(~,~)saveTags());
+uibutton(bar,'Text','Delete selected (D)','Tag','DeleteSelectedButton','ButtonPushedFcn',@(~,~)deleteTag());
+uibutton(bar,'Text','Save events (S)','Tag','SaveEventsButton','ButtonPushedFcn',@(~,~)saveTags());
 uilabel(bar,'Text','Speed');
 speed=uidropdown(bar,'Items',cellstr(compose('%gx',speedPresets)),'ItemsData',num2cell(speedPresets), ...
     'Value',1,'Tag','PlaybackSpeed','Tooltip','Up arrow: faster / Down arrow: slower; recording timestamps are unchanged.', ...
@@ -87,16 +95,25 @@ fig.WindowKeyPressFcn=@onKeyPress;
 fig.WindowKeyReleaseFcn=@onKeyRelease;
 fig.WindowButtonDownFcn=@onPointerDown;
 setappdata(fig,'FP_Timer',tm);
-try, loadSession(); catch ME, delete(tm); delete(fig); rethrow(ME); end
+try, loadSession(); updateReviewLabels(); catch ME, delete(tm); delete(fig); rethrow(ME); end
 app=struct('Figure',fig,'Mode',mode,'Seek',@manualSeek,'GetState',@getState, ...
     'Play',@play,'Pause',@pausePlayback,'Close',@closeApp,'Timer',tm, ...
     'AddEvent',@addEvent,'SaveEvents',@saveTags,'ConfirmSync',@confirmSync, ...
-    'Speed',speed,'SetSpeed',@setPlaybackRate,'Behavior',behavior);
+    'Speed',speed,'SetSpeed',@setPlaybackRate,'Behavior',behavior, ...
+    'BlindReview',blindReview,'SessionSelector',sessionDD,'EventTable',eventTable);
 
     function state=getState()
         state=struct('Session',p.Sessions(sessionIndex),'Data',data,'Time',current, ...
             'Events',events,'Axes',axesList,'VideoTime',lastFrameTime,'Dirty',dirty,'PlaybackStats',stats, ...
-            'PlaybackRate',playbackRate,'SpeedPresets',speedPresets,'KeyboardEnabled',keyboardEnabled);
+            'PlaybackRate',playbackRate,'SpeedPresets',speedPresets,'KeyboardEnabled',keyboardEnabled, ...
+            'BlindReview',blindReview.Value);
+    end
+    function updateReviewLabels()
+        sessionDD.Items=fp.review_session_labels(p,indices,blindReview.Value);
+        sessionDD.Value=sessionIndex;
+        if blindReview.Value, fig.Name='FP + Video | Blind review';
+        else, fig.Name=['FP + Video | ' p.Name]; end
+        activateReviewKeys();
     end
     function ok=leaveSession()
         pausePlayback(); ok=true;
@@ -111,11 +128,11 @@ app=struct('Figure',fig,'Mode',mode,'Seek',@manualSeek,'GetState',@getState, ...
     end
     function loadSession()
         r=p.Sessions(sessionIndex); data=fp.read_recording(r.CSV,p.ROIs);
-        video=VideoReader(r.Video); events=fp.load_events(p,r.ID); eventTable.Data=events;
+        video=VideoReader(r.Video); events=fp.load_events(p,r.ID); refreshEventTable();
         tm.Period=1/min(20,video.FrameRate);
         lastFrameTime=NaN; lastFrameIndex=-1; lastPlotUpdate=-Inf; lastTextUpdate=-Inf;
         stats=struct('FramesRead',0,'RandomSeeks',0,'DisplayedFrames',0,'PlotUpdates',0);
-        eventTable.ColumnName={'Behavior','Time (s)'};
+        eventTable.ColumnName={'Event','Behavior','Time'};
         dirty=false; offset.Value=r.VideoOffset_s; confirmed.Value=r.SyncConfirmed;
         slider.Limits=[0 data.Duration]; slider.MajorTicks=linspace(0,data.Duration,6);
         slider.MajorTickLabels=cellstr(compose('%.1f',slider.MajorTicks)); slider.MinorTicks=[]; current=0;
@@ -363,18 +380,25 @@ app=struct('Figure',fig,'Mode',mode,'Seek',@manualSeek,'GetState',@getState, ...
     end
     function onPointerDown(~,~)
         keyboardFocusExemption=[]; spaceHeld=false; tagHeld=false;
+        deleteHeld=false; saveHeld=false; eventColumnKeys=false;
         keyboardEnabled=~fp.review_shortcut_blocked(fig.CurrentObject);
     end
     function onKeyPress(~,event)
         if closing || isempty(data), return; end
         if strcmp(event.Key,'tab')
-            keyboardEnabled=false; keyboardFocusExemption=[]; spaceHeld=false; tagHeld=false; return;
+            keyboardEnabled=false; keyboardFocusExemption=[]; spaceHeld=false; tagHeld=false;
+            deleteHeld=false; saveHeld=false; eventColumnKeys=false; return;
         end
-        if ~keyboardEnabled, return; end
         object=fig.CurrentObject;
-        exempt=~isempty(keyboardFocusExemption) && isequal(object,keyboardFocusExemption);
-        if fp.review_shortcut_blocked(object) && ~exempt, return; end
         [action,value]=fp.review_shortcut(event.Key,event.Character,event.Modifier);
+        % Read-only Event cells can accept D/S directly. Editable table cells
+        % retain native letters, avoiding deletion while a behavior is being typed.
+        selection=eventTable.Selection;
+        eventAction=eventColumnKeys && isequal(object,eventTable) && ~isempty(selection) && ...
+            all(selection(:,2)==1) && ismember(action,{'delete','save'});
+        if ~keyboardEnabled && ~eventAction, return; end
+        exempt=~isempty(keyboardFocusExemption) && isequal(object,keyboardFocusExemption);
+        if fp.review_shortcut_blocked(object) && ~exempt && ~eventAction, return; end
         switch action
             case 'toggle'
                 if spaceHeld, return; end % OS key-repeat must not flicker between play/pause.
@@ -388,18 +412,28 @@ app=struct('Figure',fig,'Mode',mode,'Seek',@manualSeek,'GetState',@getState, ...
                 if tagHeld, return; end
                 tagHeld=true;
                 try, addTag(); catch ME, status.Text=ME.message; end
+            case 'delete'
+                if deleteHeld, return; end
+                deleteHeld=true; deleteTag();
+            case 'save'
+                if saveHeld, return; end
+                saveHeld=true; saveTags();
         end
     end
     function onKeyRelease(~,event)
         if strcmp(event.Key,'space'), spaceHeld=false; end
         if strcmp(event.Key,'t'), tagHeld=false; end
+        if strcmp(event.Key,'d'), deleteHeld=false; end
+        if strcmp(event.Key,'s'), saveHeld=false; end
     end
     function showShortcuts()
         text=sprintf(['Click video/trace to enable review shortcuts.\n\n' ...
             'Space: play / pause\nLeft / Right: -1 / +1 second\n' ...
             'Ctrl+Left: -5 seconds\nCtrl+Right: +5 seconds\n' ...
             'Up / Down: next faster / slower preset\n\n' ...
-            '1-9: select predefined behavior (blank slots ignored)\nT: tag onset for selected behavior\n\n' ...
+              '1-9: select predefined behavior (blank slots ignored)\nT: tag onset for selected behavior\n' ...
+              'D: delete selected events\nS: save current session events\n' ...
+              'T / D / S: key repeat suppressed. Select read-only Event cells for direct D/S.\n\n' ...
             '0.25x, 0.5x, 1x, 1.25x, 1.5x, 2x, 2.5x, 3x\n' ...
             'Default: 1x. Tags always use original recording seconds.\n' ...
             'Shortcuts are disabled while editing controls or navigating with Tab.']);
@@ -427,32 +461,45 @@ app=struct('Figure',fig,'Mode',mode,'Seek',@manualSeek,'GetState',@getState, ...
         assert(ismember(string(name),string(p.Behaviors)) && isfinite(t) && t>=0 && t<=data.Duration,'Invalid behavior event.');
         assert(t-offset.Value>=0 && t-offset.Value<video.Duration,'Cannot tag a behavior outside video coverage.');
         events=[events;table(string(name),t,'VariableNames',{'Behavior','Time_signal_s'})];
-        events=sortrows(events,'Time_signal_s'); eventTable.Data=events; dirty=true; drawEvents(); seek(current);
+        refreshEventTable(); dirty=true; drawEvents(); seek(current);
+    end
+    function refreshEventTable()
+        events=fp.order_events(events);
+        eventTable.Data=fp.event_display_table(events,true);
+        eventTable.Selection=[];
     end
     function editTag(~,~)
-        candidate=eventTable.Data;
+        candidate=events;
+        candidate.Behavior=string(eventTable.Data.Behavior);
+        % Rounded display text must never replace unchanged full-resolution onsets.
+        entered=str2double(string(eventTable.Data.Time_signal_s));
+        displayed=str2double(compose('%.1f',events.Time_signal_s));
+        changed=entered~=displayed;
+        candidate.Time_signal_s(changed)=entered(changed);
         if any(~ismember(string(candidate.Behavior),string(p.Behaviors))) || any(~isfinite(candidate.Time_signal_s) | candidate.Time_signal_s<0 | candidate.Time_signal_s>data.Duration)
-            eventTable.Data=events; uialert(fig,'Invalid behavior label or onset time.','Events'); return;
+            refreshEventTable(); uialert(fig,'Invalid behavior label or onset time.','Events'); return;
         end
-        events=candidate; dirty=true; drawEvents();
+        events=candidate; refreshEventTable(); dirty=true; drawEvents();
     end
     function selectTag(~,event)
+        eventColumnKeys=~isempty(event.Indices) && all(event.Indices(:,2)==1);
         if closing || isempty(event.Indices) || isempty(events), return; end
         row=event.Indices(1,1);
         if row<1 || row>height(events), return; end
         t=events.Time_signal_s(row);
         if ~isfinite(t), return; end
         manualSeek(t);
-        status.Text=sprintf('Review %s | signal %.4f s | video %.4f s', ...
-            char(events.Behavior(row)),t,t-offset.Value);
+        status.Text=sprintf('Review E%d | %s | signal %.4f s | video %.4f s', ...
+            row,char(events.Behavior(row)),t,t-offset.Value);
     end
     function deleteTag()
         selection=eventTable.Selection; if isempty(selection), return; end
-        rows=unique(selection(:,1)); events(rows,:)=[]; eventTable.Data=events; dirty=true; drawEvents(); activateReviewKeys();
+        if any(selection(:,1)<1 | selection(:,1)>height(events)), return; end
+        rows=unique(selection(:,1)); events(rows,:)=[]; refreshEventTable(); dirty=true; drawEvents(); activateReviewKeys();
     end
     function ok=saveTags()
         ok=false;
-        try, fp.save_events(p,p.Sessions(sessionIndex).ID,events); dirty=false; ok=true; status.Text='Behavior events saved.'; activateReviewKeys();
+        try, refreshEventTable(); fp.save_events(p,p.Sessions(sessionIndex).ID,events); dirty=false; ok=true; status.Text='Behavior events saved.'; activateReviewKeys();
         catch ME, uialert(fig,ME.message,'Save events'); end
     end
     function importTags()
@@ -467,7 +514,7 @@ app=struct('Figure',fig,'Mode',mode,'Seek',@manualSeek,'GetState',@getState, ...
                 imported=[imported;table(repmat(string(p.Behaviors{z}),height(T),1),T.(col)+data.LegacyTimeShift_s,'VariableNames',events.Properties.VariableNames)]; %#ok<AGROW>
             end
             assert(all(isfinite(imported.Time_signal_s) & imported.Time_signal_s>=0 & imported.Time_signal_s<=data.Duration),'Legacy tags contain invalid/out-of-range times.');
-            events=unique([events;imported],'rows','stable'); eventTable.Data=events; dirty=true; drawEvents();
+            events=unique([events;imported],'rows','stable'); refreshEventTable(); dirty=true; drawEvents();
         catch ME, uialert(fig,ME.message,'Import old tags'); end
     end
     function saveSnapshot()
@@ -485,4 +532,3 @@ app=struct('Figure',fig,'Mode',mode,'Seek',@manualSeek,'GetState',@getState, ...
         if isvalid(tm), stop(tm); delete(tm); end
     end
 end
-
