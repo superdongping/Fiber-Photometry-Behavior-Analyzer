@@ -1,7 +1,8 @@
 ﻿function fig=fiber_photometry_project(projectFile)
 % Local project manager. Launch this entry point in MATLAB R2024a or newer.
-if nargin<1, p=[]; else, p=fp.load_project(projectFile); end
-fig=uifigure('Name','Fiber Photometry Behavior Analyzer V1.1','Position',[80 80 1400 850]);
+repairs=[];
+if nargin<1, p=[]; else, [p,repairs]=fp.load_project(projectFile); end
+fig=uifigure('Name','Fiber Photometry Behavior Analyzer V1.2','Position',[80 80 1400 850]);
 root=uigridlayout(fig,[4 1]); root.RowHeight={48,36,'1x',32};
 toolbar=uigridlayout(root,[1 6]); toolbar.Layout.Row=1;
 uibutton(toolbar,'Text','New project','ButtonPushedFcn',@(~,~)newProject());
@@ -13,7 +14,17 @@ uibutton(toolbar,'Text','Analysis settings','ButtonPushedFcn',@(~,~)analyze());
 info=uilabel(root,'Text','Create or open a project. Raw recordings remain in their source folder.'); info.Layout.Row=2;
 tabs=uitabgroup(root); tabs.Layout.Row=3;
 tab=uitab(tabs,'Title','Sessions (same mouse may have multiple conditions)');
-g=uigridlayout(tab,[1 1]); st=uitable(g,'CellEditCallback',@(~,~)sessionEdited(),'Tag','SessionsTable');
+g=uigridlayout(tab,[3 1]); g.RowHeight={34,24,'1x'};
+selection=uigridlayout(g,[1 6]); selection.Layout.Row=1; selection.Padding=[0 0 0 0];
+selection.ColumnWidth={110,110,220,120,120,140};
+uibutton(selection,'Text','Check all','Tag','CheckAll','ButtonPushedFcn',@(~,~)selectSessions('all'));
+uibutton(selection,'Text','Uncheck all','Tag','UncheckAll','ButtonPushedFcn',@(~,~)selectSessions('none'));
+groupDD=uidropdown(selection,'Items',{'Choose group'},'Tag','SelectionGroup');
+uibutton(selection,'Text','Check group','Tag','CheckGroup','ButtonPushedFcn',@(~,~)selectSessions('group'));
+uibutton(selection,'Text','Uncheck group','Tag','UncheckGroup','ButtonPushedFcn',@(~,~)selectSessions('ungroup'));
+uibutton(selection,'Text','Only this group','Tag','OnlyGroup','ButtonPushedFcn',@(~,~)selectSessions('only'));
+hint=uilabel(g,'Text','Plots combine the same Group + Label + ROI + behavior. Label is the condition, not a mouse ID.');hint.Layout.Row=2;
+st=uitable(g,'CellEditCallback',@(~,~)sessionEdited(),'Tag','SessionsTable'); st.Layout.Row=3;
 tab=uitab(tabs,'Title','Animal groups'); g=uigridlayout(tab,[1 1]);
 at=uitable(g,'ColumnEditable',[false true],'ColumnSortable',[true true], ...
     'CellEditCallback',@(~,~)sessionEdited(),'Tag','AnimalGroupsTable');
@@ -38,7 +49,11 @@ refresh();
         rt.Data=struct2table(p.ROIs); rt.ColumnName={'CSV ROI ID','ROI name'};
         bt.Data=table((1:9)',string(fp.behavior_slots(p))','VariableNames',{'Key','Name'});
         bt.ColumnName={'Shortcut (1-9)','Behavior name'};
-        dirty=false;
+        groupDD.Items=cellstr(string(p.Groups));
+        dirty=~isempty(repairs);
+        if dirty
+            status.Text=sprintf('Repaired %d imported ID/condition fields in memory. Review and Save configuration to keep them.',numel(repairs));
+        end
     end
     function markDirty(), dirty=true; status.Text='Configuration changed; save before using it.'; end
     function updateSessionGroups()
@@ -52,10 +67,16 @@ refresh();
     function sessionEdited()
         updateSessionGroups(); markDirty();
     end
+    function selectSessions(action)
+        if isempty(p), return; end
+        updateSessionGroups(); st.Data=fp.select_sessions(st.Data,action,groupDD.Value); markDirty();
+        status.Text=sprintf('%d / %d sessions checked. Save configuration to keep selection.',sum(st.Data.Include),height(st.Data));
+    end
     function ok=saveChanges()
         ok=false; if isempty(p), return; end
         if ~dirty
-            p=fp.load_project(fullfile(p.Root,'project.mat')); refresh(); ok=true; return;
+            [p,repairs]=fp.load_project(fullfile(p.Root,'project.mat')); refresh();
+            if ~dirty, ok=true; return; end
         end
         try
             candidate=p;
@@ -76,7 +97,14 @@ refresh();
                     end
                 end
             end
-            fp.save_project(candidate); p=candidate; dirty=false; ok=true;
+            if ~isempty(repairs)
+                backup=fullfile(p.Root,['backup_import_repair_' char(datetime('now','Format','yyyyMMdd_HHmmss_SSS'))]); mkdir(backup);
+                for name={'project.mat','project.json','sessions.csv','animals.csv'}
+                    src=fullfile(p.Root,name{1}); if isfile(src),copyfile(src,fullfile(backup,name{1}));end
+                end
+                writetable(struct2table(repairs),fullfile(backup,'repairs.csv'));
+            end
+            fp.save_project(candidate); p=candidate; repairs=[]; dirty=false; ok=true;
             refresh(); status.Text=['Saved ' fullfile(p.Root,'project.mat')];
         catch ME, uialert(fig,ME.message,'Configuration error'); end
     end
@@ -88,13 +116,13 @@ refresh();
     end
     function newProject()
         if ~leave(), return; end
-        try, candidate=fp.new_project_dialog(); if ~isempty(candidate), p=candidate; refresh(); end
+        try, candidate=fp.new_project_dialog(); if ~isempty(candidate), p=candidate; repairs=[]; refresh(); end
         catch ME, uialert(fig,ME.message,'New project'); end
     end
     function openProject()
         if ~leave(), return; end
         [f,d]=uigetfile('*.mat','Open project.mat'); if isequal(f,0), return; end
-        try, p=fp.load_project(fullfile(d,f)); refresh(); catch ME, uialert(fig,ME.message,'Open project'); end
+        try, [p,repairs]=fp.load_project(fullfile(d,f)); refresh(); catch ME, uialert(fig,ME.message,'Open project'); end
     end
     function viewSession()
         if ~saveChanges(), return; end

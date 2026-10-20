@@ -40,6 +40,7 @@ assert(numel(s.HeatmapPercentiles)==2 && all(isfinite(s.HeatmapPercentiles)) && 
     s.HeatmapPercentiles(1)>=0 && s.HeatmapPercentiles(2)<=100 && diff(s.HeatmapPercentiles)>0,'Invalid heatmap percentiles.');
 assert(isempty(s.HeatmapCLim) || (numel(s.HeatmapCLim)==2 && all(isfinite(s.HeatmapCLim)) && diff(s.HeatmapCLim)>0),'Invalid fixed heatmap limits.');
 s=fp.plot_settings(s);
+assert(ismember(string(s.ConditionGrouping),["separate","combine"]),'Invalid condition grouping.');
 assert(ismember(string(s.HeatmapRowLabels),["detailed","endpoints"]),'Invalid heatmap row label mode.');
 assert(isempty(s.CurveYLim) || (isnumeric(s.CurveYLim) && isreal(s.CurveYLim) && numel(s.CurveYLim)==2 && all(isfinite(s.CurveYLim)) && diff(s.CurveYLim)>0), ...
     'Curve Y minimum must be less than the maximum; both must be finite.');

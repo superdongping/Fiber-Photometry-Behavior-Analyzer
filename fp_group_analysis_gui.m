@@ -30,6 +30,8 @@ numeric('MaxGapFactor','Gap threshold (x median dt)',s.MaxGapFactor);
 label('Require confirmed video sync');
 c.RequireConfirmedSync=uicheckbox(grid,'Text','Required','Value',s.RequireConfirmedSync,'Tag','RequireConfirmedSync','FontSize',11);
 grid=display;
+dropdown('ConditionGrouping','Conditions: separate/combine',{'separate','combine'},s.ConditionGrouping);
+c.ConditionGrouping.Tooltip='Separate: one plot per condition. Combine: pool checked sessions within each group and animal, including different phases. Original labels remain in the project snapshot.';
 dropdown('PlotUnit','Average and heatmap rows',{'animal','trial'},'animal');
 dropdown('HeatmapRowLabels','Heatmap Y labels',{'detailed','endpoints'},s.HeatmapRowLabels);
 c.HeatmapRowLabels.Tooltip='Detailed: animal / session / event identity and sorted trial row. Endpoints: only 1 and total rows N.';
@@ -50,7 +52,7 @@ if ~isempty(s.CurveYLim)
 end
 tip=uilabel(grid,'Text',sprintf(['All ROI/behavior curves share one Y range. Set both limits or leave both blank.\n' ...
     'Endpoints show sorted row numbers 1 and N; identity remains in the row CSV.']), ...
-    'WordWrap','on','FontSize',11); tip.Layout.Row=[10 13]; tip.Layout.Column=[1 2];
+    'WordWrap','on','FontSize',11); tip.Layout.Row=[11 13]; tip.Layout.Column=[1 2];
 note=uilabel(root,'Text','Animal: average within each mouse first. Trial: descriptive SEM across trials nested in animals.', ...
     'WordWrap','on','FontSize',11); note.Layout.Row=3;
 buttons=uigridlayout(root,[1 2]); buttons.Layout.Row=4; buttons.Padding=[0 0 0 0];
@@ -72,7 +74,7 @@ app=struct('Figure',fig,'Controls',c,'PlotButton',plotButton,'Plot',@plotNow, ..
         candidate=s;
         for name={'PreTime','PostTime','OutputFs','LowpassHz','FilterOrder','MaxGapFactor', ...
                 'SignalMode','Normalization','SortOrder','WavelengthAlignment','RequireConfirmedSync', ...
-                'HeatmapRowLabels','ShowIndividualTraces'}
+                'HeatmapRowLabels','ShowIndividualTraces','ConditionGrouping'}
             candidate.(name{1})=c.(name{1}).Value;
         end
         candidate.Baseline=[c.BaselineStart.Value c.BaselineEnd.Value];

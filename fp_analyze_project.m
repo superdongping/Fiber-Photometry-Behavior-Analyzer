@@ -19,6 +19,8 @@ qc=struct('SessionID',{},'AnimalID',{},'ROI',{},'Behavior',{},'EventIndex',{},'O
 inputFiles=struct('SessionID',{},'SelectedCSV',{},'ReadCSV',{},'Timing',{},'Video',{},'VideoDuration_s',{},'VideoOffset_s',{},'SyncConfirmed',{},'EventsFile',{});
 for k=find([p.Sessions.Include])
     record=p.Sessions(k); tags=fp.load_events(p,record.ID);
+    analysisLabel=record.Label;
+    if strcmp(s.ConditionGrouping,'combine'),analysisLabel='Combined conditions';end
     animal=p.Animals(strcmp({p.Animals.ID},record.AnimalID));
     if s.RequireConfirmedSync && ~record.SyncConfirmed
         qc(end+1)=qrow(record,'','',0,NaN,false,'sync_not_confirmed'); %#ok<AGROW>
@@ -72,7 +74,7 @@ for k=find([p.Sessions.Include])
             accepted=isempty(reason);
             if accepted
                 reason='accepted';
-                trials(end+1)=struct('AnimalID',record.AnimalID,'Group',animal.Group,'SessionLabel',record.Label, ...
+                trials(end+1)=struct('AnimalID',record.AnimalID,'Group',animal.Group,'SessionLabel',analysisLabel, ...
                     'SessionID',record.ID,'ROI',p.ROIs(r).Name,'Behavior',behavior,'EventIndex',e, ...
                     'Onset_s',onset,'Values',values); %#ok<AGROW>
             end

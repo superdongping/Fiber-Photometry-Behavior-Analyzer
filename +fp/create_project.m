@@ -6,10 +6,15 @@ if ~isfield(p,'Settings'), p.Settings=fp.defaults(); end
 p.Created=char(datetime('now','Format','yyyy-MM-dd HH:mm:ss'));
 p.Sessions=struct('ID',{},'AnimalID',{},'Label',{},'CSV',{},'Video',{}, ...
     'Include',{},'VideoOffset_s',{},'SyncConfirmed',{});
-records=fp.find_recordings(dataRoot);
+records=fp.find_recordings(dataRoot,p.Groups);
 for k=1:numel(records)
     token=records(k).AnimalID;
     known=ismember(string(token),string({p.Animals.ID}));
+    identity=fp.recording_identity(records(k).CSV,p.Groups);
+    if known && ismember(string(identity.GroupHint),string(p.Groups))
+        animal=p.Animals(strcmp({p.Animals.ID},token));
+        known=strcmp(animal.Group,identity.GroupHint);
+    end
     p.Sessions(end+1)=struct('ID',sprintf('S%03d',k),'AnimalID',token, ...
         'Label',records(k).Label,'CSV',records(k).CSV,'Video',records(k).Video, ...
         'Include',known && isfile(records(k).Video),'VideoOffset_s',0,'SyncConfirmed',false); %#ok<AGROW>

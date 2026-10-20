@@ -1,5 +1,16 @@
 # Changelog
 
+## V1.2 ? 2026-10-20
+
+- Import nested batch/sensor/animal/timestamp recordings using ancestor animal IDs instead of timestamp folders. Infer ordinary NPR Encoding/Retrieval condition labels while retaining treatment qualifiers.
+- Repair recognizable legacy timestamp IDs and mouse-folder labels in memory when opening projects; preserve custom labels and back up the original configuration when repairs are saved in the manager.
+- Add Check all, Uncheck all, Check group, Uncheck group, and Only this group controls. These change Include only and support sorted tables.
+- Add explicit separate/combine condition grouping for checked sessions. Animal-level results average within each mouse before group means/SEM; combining sessions does not increase animal count. Original labels remain in the analysis snapshot.
+- Add synthetic nested-import, grouping, GUI selection and annotation-preservation regression tests.
+
+Application version: 1.2.0. Project schema stays at version 1; existing projects remain compatible.
+
+
 ## V1.1 — 2026-10-19
 
 - Add **D** to delete selected events and **S** to save events for the current session. Holding either key does not repeat the action. Buttons and shortcut help show the new keys.

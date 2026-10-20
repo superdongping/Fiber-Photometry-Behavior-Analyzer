@@ -46,11 +46,11 @@ for block in source.strip().split('\n\n'):
 def footer(canvas, doc):
     canvas.setFont('Helvetica', 8)
     canvas.setFillColor(colors.HexColor('#526273'))
-    canvas.drawString(36, 20, 'V1.1 | Quick-start instructions | Full details: README.md')
+    canvas.drawString(36, 20, 'V1.2 | Quick-start instructions | Full details: README.md')
     canvas.drawRightString(576, 20, str(doc.page))
 
 doc = SimpleDocTemplate(str(output), pagesize=letter, rightMargin=36, leftMargin=36,
-                       topMargin=30, bottomMargin=33, title='Fiber Photometry Behavior Analyzer V1.1 - Instructions',
+                       topMargin=30, bottomMargin=33, title='Fiber Photometry Behavior Analyzer V1.2 - Instructions',
                        author='superdongping')
 doc.build(story, onFirstPage=footer, onLaterPages=footer)
 print(output)

@@ -1,6 +1,6 @@
-# Fiber Photometry Behavior Analyzer V1.1
+# Fiber Photometry Behavior Analyzer V1.2
 
-Current application release: **1.1.0**. See [CHANGELOG.md](CHANGELOG.md). The repository now uses a stable name; the V1.0 tag/release and upstream archive remain available.
+Current application release: **1.2.0**. See [CHANGELOG.md](CHANGELOG.md). The repository now uses a stable name; the V1.0 tag/release and upstream archive remain available.
 
 A MATLAB desktop workflow for synchronized behavioral video review, multi-ROI fiber photometry annotation, and animal-level group traces and heatmaps.
 
@@ -21,6 +21,16 @@ launch_analyzer
 `launch_review` remains a compatible entry point. Add only the repository root to the MATLAB path; **do not use `addpath(genpath(...))`**, which also adds historical code and test artifacts.
 
 ## Workflow
+
+### V1.2: nested imports and group selection
+
+- The Sessions toolbar now provides **Check all**, **Uncheck all**, a group selector, **Check group**, **Uncheck group**, and **Only this group**. Check/Uncheck group leaves other groups unchanged; Only this group clears other groups. These actions change Include only, across all sessions of the selected group, and work after sorting the table. Save configuration to keep the selection. Synchronization still needs a separate check.
+- Import supports `batch / sensor / animal / timestamp / CSV`. It finds the ancestor `#AnimalID` folder and skips timestamp and sensor levels when choosing the condition. NPR E and NPR R become **Encoding** and **Retrieval**. Animal/group definitions still come from your project configuration; unknown or ambiguous identities are not invented.
+- Opening older projects repairs recognizable timestamp IDs and mouse-folder condition labels **in memory** when the sources agree with a known animal and group. The manager displays a repair notice. Save configuration to persist the correction; the original configuration and a repair table are backed up in `backup_import_repair_*`. Session IDs, source paths, event files, Include flags, sync and analysis settings are retained. Custom condition labels are not replaced.
+- Plots normally combine **Group + condition Label + ROI + behavior**. A mouse name in Label wrongly creates a separate condition per mouse. Use condition names, not animal IDs. In Analysis settings, **Conditions: separate/combine** lets you explicitly pool checked conditions. Default **separate** keeps Encoding/Retrieval apart. **combine** pools those sessions within each animal and group; original condition labels remain in the saved project snapshot. The two ROIs and different behaviors remain separate. Use **animal** for equal-weight animal means/SEM; trial mode is a descriptive pooled-event display, not extra independent mice.
+- Close existing viewer/analysis/project windows and reopen with this local code after updating. V1.0/V1.1 projects remain compatible; project schema version is unchanged.
+
+Additional regression: `addpath('tests'); test_import_selection` checks nested discovery, legacy repair, four-animal grouping, explicit phase pooling, sorted-table selection, and unchanged annotations.
 
 1. **New project:** enter a project name, behavioral task, behavior labels, groups, animal counts/IDs, and source ROI IDs plus display names. Choose the recording directory and a separate project parent directory.
 2. Review **Sessions**, **Animal groups**, and **ROI names**. Sessions shows the Group matched by AnimalID; click column headers to sort. Conditions are session labels, not animal groups. Encoding/Retrieval labels are analyzed separately. Check IDs, paths, labels and Include flags; include only the intended records.
@@ -68,7 +78,7 @@ The animal folder supplies the ID (a `#ID` token when present); its parent suppl
 
 If a neighboring `<stem>_metadata.json` has a valid `detailed_csv` path, the reader prefers that detailed CSV and uses its independent `Time_410_s` and `Time_470_s` columns, preserving all available samples. A shared-Time CSV cannot recover independent wavelength exposure times. Input paths in manifests and sidecars must still resolve on the current computer.
 
-For extra category/recording directory levels (for example batch/sensor/animal/recording), review and correct AnimalID, Group, Label and Include before opening the viewer. Discovery does not infer biological grouping and can mistake recording-folder timestamps for IDs. Use consistent condition labels such as Encoding/Retrieval; the analysis keeps conditions separate. Do not infer that every nonempty recording is a valid behavioral session.
+For extra category/recording directory levels, discovery looks for an ancestor animal folder and skips timestamp/sensor levels. Review AnimalID, Group, Label and Include before opening the viewer, especially for folders without a clear animal ID. Use consistent condition labels such as Encoding/Retrieval; conditions stay separate unless you explicitly choose combine. Do not infer that every nonempty recording is a valid behavioral session.
 
 Projects save `project.mat`, readable `project.json`, animal/session CSVs, per-session event CSVs in `events/`, and analyses in `results/`. Events use original signal seconds. Sources remain read-only. Store projects and recordings outside this repository. Session source paths are absolute and may need updating after moving data.
 
