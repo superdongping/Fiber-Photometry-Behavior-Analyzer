@@ -1,6 +1,6 @@
 # Changelog
 
-## V1.2 ? 2026-10-20
+## V1.2 — 2026-10-20
 
 - Import nested batch/sensor/animal/timestamp recordings using ancestor animal IDs instead of timestamp folders. Infer ordinary NPR Encoding/Retrieval condition labels while retaining treatment qualifiers.
 - Repair recognizable legacy timestamp IDs and mouse-folder labels in memory when opening projects; preserve custom labels and back up the original configuration when repairs are saved in the manager.
